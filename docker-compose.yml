@@ -1,0 +1,115 @@
+services:
+  # 1. VERİTABANI (PostgreSQL 15)
+  postgres:
+    image: postgres:15-alpine
+    container_name: gazi_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: gazi_assistant
+      POSTGRES_USER: gazi_admin
+      POSTGRES_PASSWORD: secure_db_password_123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5435:5432"
+    networks:
+      - gazi_network
+
+  # 2. VEKTÖR VERİTABANI (Qdrant)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: gazi_qdrant
+    restart: always
+    ports:
+      - "6335:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - gazi_network
+
+  # 3. CACHE & MESAJ KUYRUĞU (Redis)
+  redis:
+    image: redis:7-alpine
+    container_name: gazi_redis
+    restart: always
+    command: redis-server --appendonly yes
+    ports:
+      - "6382:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - gazi_network
+
+  # 5. BACKEND API (FastAPI)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gazi_backend
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://gazi_admin:secure_db_password_123@postgres:5432/gazi_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_URL=http://host.docker.internal:11434
+      - JWT_SECRET_KEY=gazi_tekno_super_secret_key_2026
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - postgres
+      - qdrant
+      - redis
+    networks:
+      - gazi_network
+    volumes:
+      - gazi_uploads:/tmp/gazi_uploads
+
+  # 6. ASENKRON BELGE İŞLEME WORKER (Celery)
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gazi_celery_worker
+    command: celery -A app.infrastructure.services.celery_tasks.celery worker --loglevel=info -c 2
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://gazi_admin:secure_db_password_123@postgres:5432/gazi_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_URL=http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - gazi_network
+    volumes:
+      - gazi_uploads:/tmp/gazi_uploads
+
+  # 7. TERS PROXY VE STATİK SUNUCU (Nginx SSL/TLS)
+  nginx:
+    image: nginx:alpine
+    container_name: gazi_nginx
+    restart: always
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro # React Statik Build Dosyaları
+    depends_on:
+      - backend
+    networks:
+      - gazi_network
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  redis_data:
+  gazi_uploads:
+
+networks:
+  gazi_network:
+    driver: bridge
