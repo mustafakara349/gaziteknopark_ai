@@ -285,7 +285,7 @@ class ChatWorkflow:
             "1. SADECE KAYNAK KULLANIMI: Yanıtlarını oluştururken SADECE sana sağlanan 'Kaynak Belgeler' içerisindeki bilgileri kullan. "
             "Asla kendi genel bilginle varsayımda bulunma, tahminde bulunma veya dışarıdan bilgi uydurma (Halüsinasyon yapma).\n"
             "2. BİLGİ EKSİKLİĞİ: Eğer kullanıcının sorusunun cevabı sağlanan kaynak belgelerde kesin olarak yer almıyorsa, "
-            "\"Kaynak belgelerde bu bilgiye ulaşılamadı.\" yanıtını ver.\n"
+            "SADECE VE SADECE \"Kaynak belgelerde bu bilgiye ulaşılamadı.\" yanıtını ver. Başka hiçbir açıklama, yorum veya ek cümle ekleme.\n"
             "3. DİL VE ÜSLUP: Her zaman saygılı, resmi, empatik ve çözüm odaklı bir dil kullan. Yanıtlarını "
             "okunması kolay olacak şekilde paragraflara ve (gerekirse) maddelere bölerek yapılandır.\n"
             "4. BAĞLAM (CONTEXT) BÜTÜNLÜĞÜ: Cevabın, soruyu doğrudan yanıtlamalı, gereksiz laf kalabalığından kaçınmalı "
@@ -325,8 +325,8 @@ class ChatWorkflow:
         chunks = state.get("reranked_chunks", [])
         
         # Basit Kural Tabanlı Halüsinasyon Kontrolü:
-        # Eğer LLM " ulaşılamadı" veya "bilgi bulunamadı" dediyse kabul et.
-        if "ulaşılamadı" in response.lower() or "bulunamadı" in response.lower():
+        # Eğer LLM " ulaşılamadı", "bilgi bulunamadı" veya "yanıt veremediği" vb. ifadeler kullandıysa kabul et.
+        if any(keyword in response.lower() for keyword in ["ulaşılamadı", "bulunamadı", "yanıt veremediği", "cevap veremiyoruz", "bilgi yer almıyor"]):
             return {"response": "Kaynak belgelerde bu bilgiye ulaşılamadı."}
             
         # Diğer durumlarda, üretilen yanıt kelimelerinin anlamsal olarak kaynak metinlerde geçip geçmediğine bakılır
@@ -386,8 +386,8 @@ class ChatWorkflow:
         return "has_context"
 
     def decide_hallucination(self, state: AgentState) -> str:
-        response = state.get("response", "")
-        if "ulaşılamadı" in response:
+        response = state.get("response", "").lower()
+        if any(kw in response for kw in ["ulaşılamadı", "bulunamadı", "yanıt veremediği", "cevap veremiyoruz", "bilgi yer almıyor"]):
             return "hallucinated"
         return "grounded"
 
@@ -623,7 +623,7 @@ class ChatWorkflow:
             "1. SADECE KAYNAK KULLANIMI: Yanıtlarını oluştururken SADECE sana sağlanan 'Kaynak Belgeler' içerisindeki bilgileri kullan. "
             "Asla kendi genel bilginle varsayımda bulunma, tahminde bulunma veya dışarıdan bilgi uydurma (Halüsinasyon yapma).\n"
             "2. BİLGİ EKSİKLİĞİ: Eğer kullanıcının sorusunun cevabı sağlanan kaynak belgelerde kesin olarak yer almıyorsa, "
-            "\"Kaynak belgelerde bu bilgiye ulaşılamadı.\" yanıtını ver.\n"
+            "SADECE VE SADECE \"Kaynak belgelerde bu bilgiye ulaşılamadı.\" yanıtını ver. Başka hiçbir açıklama, yorum veya ek cümle ekleme.\n"
             "3. DİL VE ÜSLUP: Her zaman saygılı, resmi, empatik ve çözüm odaklı bir dil kullan. Yanıtlarını "
             "okunması kolay olacak şekilde paragraflara ve (gerekirse) maddelere bölerek yapılandır.\n"
             "4. BAĞLAM (CONTEXT) BÜTÜNLÜĞÜ: Cevabın, soruyu doğrudan yanıtlamalı, gereksiz laf kalabalığından kaçınmalı "

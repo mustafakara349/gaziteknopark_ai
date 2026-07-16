@@ -60,7 +60,9 @@ class DocumentProcessor:
                 chunks = self.splitter.split_text(text_content)
                 
                 for chunk_idx, chunk_text in enumerate(chunks):
-                    all_chunks_text.append(chunk_text)
+                    # Belge adını chunk metnine ekleyerek vektör eşleşme başarımını artırıyoruz
+                    enhanced_chunk_text = f"Belge Adı: {document.title}\n{chunk_text}"
+                    all_chunks_text.append(enhanced_chunk_text)
                     
                     # Metadata hazırlığı
                     payload = {
@@ -69,7 +71,7 @@ class DocumentProcessor:
                         "file_name": document.title,
                         "page_number": page_num,
                         "chunk_index": chunk_idx,
-                        "text": chunk_text
+                        "text": enhanced_chunk_text
                     }
                     all_payloads.append(payload)
                     
