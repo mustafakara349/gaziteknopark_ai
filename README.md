@@ -179,3 +179,28 @@ git pull origin main
 git branch -d feature/eklenecek-ozellik-adi
 ```
 
+---
+
+## 🎨 Gazi Üniversitesi Kurumsal Renk Paleti
+
+Geliştirme yaparken projede kullanılan renklerin resmi Gazi Üniversitesi kurumsal kimlik kılavuzuna uygun olmasına dikkat edilmelidir. Kullanılan ana ve yardımcı renklerin detayları aşağıdaki gibidir:
+
+### 🌟 Ana Renkler
+| Renk Tanımı | Pantone Kodu | CMYK Değerleri | Örnek Renk (Hex) | Kullanım Yeri |
+| :--- | :--- | :--- | :--- | :--- |
+| **Lacivert** | Pantone 534C | C100 M80 Y20 K20 | `#1b365d` | Ana arayüz arka planı, ana butonlar, sidebar ve başlıklar. |
+| **Mavi** | Pantone 7457C | C30 M0 Y0 K0 | `#e6f0fa` | Aktif menü öğeleri, hover efektleri, AI konuşma balonları. |
+
+### 🛠️ Kurumsal Yardımcı Renkler
+| Renk Tanımı | Pantone Kodu | CMYK Değerleri | Örnek Renk (Hex) | Örnek Kullanım Alanı |
+| :--- | :--- | :--- | :--- | :--- |
+| **Bordo** | Pantone 221C | C30 M100 Y53 K20 | `#8f0037` | Hata, silme, çıkış yapma veya tehlikeli işlem butonları. |
+| **Gold (Altın)** | Pantone 871C | C20 M25 Y60 K25 | `#c5a059` | Favorilere ekleme yıldızı, önemli uyarılar ve vurgulu alanlar. |
+| **Yeşil (Adaçayı)** | Pantone 5625C | C57 M35 Y56 K10 | `#768d75` | Başarılı durum bildirimleri, aktif/aktifleşen durumlar. |
+| **Gri** | Pantone 877C | C0 M0 Y0 K40 | `#8c8c8c` | İkincil metinler, pasif menü ikonları ve kenarlıklar. |
+| **Slate Mavi** | Pantone 7698C | C78 M46 Y32 K6 | `#3c7391` | Bilgi kartları ve veri görselleştirme öğeleri. |
+| **Menekşe Moru** | Pantone 7662C | C58 M88 Y17 K0 | `#7b3f8c` | İkincil vurgu butonları veya bildirimler. |
+| **Toprak Kahvesi** | Pantone 4725C | C30 M46 Y50 K0 | `#b39a82` | İkincil detaylar ve kurumsal doküman etiketleri. |
+| **Haki Gri** | Pantone 5507C | C40 M23 Y30 K0 | `#8ea297` | Arka plan kartları ve pasif durum rozetleri. |
+
+
