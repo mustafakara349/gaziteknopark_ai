@@ -3,6 +3,12 @@ import logging
 from typing import List, Dict, Any, TypedDict, Optional
 from app.application.interfaces.llm import ILLMService
 from app.application.interfaces.embedding import IEmbeddingService
+from app.application.prompts.chat_prompts import (
+    RAG_SYSTEM_PROMPT,
+    CHITCHAT_SYSTEM_PROMPT,
+    CLASSIFY_SYSTEM_PROMPT,
+    CONDENSE_SYSTEM_PROMPT,
+)
 
 from app.core.config import settings
 from app.domain.repositories.vector_repository import IVectorStoreRepository
@@ -161,15 +167,8 @@ class ChatWorkflow:
             if any(any(root in word for root in greeting_roots) for word in words):
                 return {"query_type": "chitchat"}
         
-        system_prompt = (
-            "Sen bir sorgu sınıflandırıcısısın. Görevin, kullanıcının yazdığı sorgunun türünü belirlemektir.\n"
-            "Sorguyu iki sınıftan birine yerleştir:\n"
-            "- CHITCHAT: Selamlaşma, hal hatır sorma, genel sohbet, teşekkür etme, vedalaşma veya asistanın kim olduğunu sorma gibi bilgi aramayan konuşmalar.\n"
-            "- RAG: Şirket kuralları, belgeler, teknik konular veya bilgi arama amaçlı sorular/talepler.\n\n"
-            "Sorguyu analiz et ve SADECE 'CHITCHAT' veya 'RAG' kelimelerinden birini döndür."
-        )
         try:
-            response = self.llm_service.generate(f"{system_prompt}\nSORGULA: {query}")
+            response = self.llm_service.generate(f"{CLASSIFY_SYSTEM_PROMPT}\nSORGULA: {query}")
             classification = response.upper()
             if "CHITCHAT" in classification:
                 return {"query_type": "chitchat"}
@@ -186,19 +185,7 @@ class ChatWorkflow:
             history_parts.append(f"{role_label}: {msg.get('content')}")
         history_str = "\n".join(history_parts)
         
-        system_prompt = (
-            "Sen 'Gazi Teknopark' (Gazi Üniversitesi Teknoloji Geliştirme Bölgesi) için özel olarak geliştirilmiş, "
-            "resmi, güvenilir ve son derece profesyonel bir Kurumsal Bilgi Asistanısın.\n"
-            "Şu anki görevin, kullanıcının selamlaşma, hal hatır sorma veya genel sohbet amaçlı iletilerine "
-            "Gazi Teknopark'ın kurumsal kimliğine yakışır şekilde, nazik, sıcak ve profesyonel bir karşılık vermektir.\n\n"
-            "KURALLAR:\n"
-            "1. KİMLİĞİNİ KORU: Sen bir yapay zeka asistanısın. Kendini 'Gazi Teknopark Kurumsal Bilgi Asistanı' olarak tanıt.\n"
-            "2. YARDIMA HAZIR OL: Kullanıcıya hal hatır sorduktan veya selamını aldıktan sonra, Gazi Teknopark "
-            "kuralları, mevzuatları, hizmetleri veya genel belgeleri hakkında sorular sorabileceğini hatırlat.\n"
-            "3. KISA VE ÖZ: Yanıtlarını çok uzatmadan, doğrudan, sıcak ve kurumsal bir tonda tut.\n"
-            "4. KURUMSALLIK: Asla argo, aşırı laubali veya profesyonellik dışı kelimeler kullanma."
-        )
-        prompt = f"{system_prompt}\n\n"
+        prompt = f"{CHITCHAT_SYSTEM_PROMPT}\n\n"
         if history_str:
             prompt += f"SOHBET GEÇMİŞİ:\n{history_str}\n\n"
         prompt += f"Kullanıcı: {query}\nAsistan:"
@@ -276,24 +263,7 @@ class ChatWorkflow:
             
         context_str = "\n\n".join(context_list)
         
-        system_prompt = (
-            "Sen 'Gazi Teknopark' (Gazi Üniversitesi Teknoloji Geliştirme Bölgesi) için özel olarak geliştirilmiş, "
-            "resmi, güvenilir ve son derece profesyonel bir Kurumsal Bilgi Asistanısın.\n"
-            "Görevin, Gazi Teknopark firmaları, çalışanları, yönetimi veya dış paydaşları tarafından sorulan sorulara "
-            "aşağıda sağlanan 'Kaynak Belgeler' (Context) ışığında en doğru, şeffaf ve kurumsal dilde yanıt vermektir.\n\n"
-            "KESİN KURALLAR VE DAVRANIŞ BİÇİMİ:\n"
-            "1. SADECE KAYNAK KULLANIMI: Yanıtlarını oluştururken SADECE sana sağlanan 'Kaynak Belgeler' içerisindeki bilgileri kullan. "
-            "Asla kendi genel bilginle varsayımda bulunma, tahminde bulunma veya dışarıdan bilgi uydurma (Halüsinasyon yapma).\n"
-            "2. BİLGİ EKSİKLİĞİ: Eğer kullanıcının sorusunun cevabı sağlanan kaynak belgelerde kesin olarak yer almıyorsa, "
-            "SADECE VE SADECE \"Kaynak belgelerde bu bilgiye ulaşılamadı.\" yanıtını ver. Başka hiçbir açıklama, yorum veya ek cümle ekleme.\n"
-            "3. DİL VE ÜSLUP: Her zaman saygılı, resmi, empatik ve çözüm odaklı bir dil kullan. Yanıtlarını "
-            "okunması kolay olacak şekilde paragraflara ve (gerekirse) maddelere bölerek yapılandır.\n"
-            "4. BAĞLAM (CONTEXT) BÜTÜNLÜĞÜ: Cevabın, soruyu doğrudan yanıtlamalı, gereksiz laf kalabalığından kaçınmalı "
-            "ancak yeterince açıklayıcı ve doyurucu olmalıdır.\n"
-            "5. GİZLİLİK VE GÜVENLİK: Gazi Teknopark'ın kurumsal itibarını koru. Yasaklı, yasadışı veya zararlı içeriklere "
-            "asla yanıt verme.\n\n"
-            f"--- KAYNAK BELGELER BAŞLANGICI ---\n{context_str}\n--- KAYNAK BELGELER BİTİŞİ ---\n"
-        )
+        system_prompt = RAG_SYSTEM_PROMPT.format(context=context_str)
         
         # Sohbet geçmişini ekle
         history_parts = []
@@ -404,16 +374,7 @@ class ChatWorkflow:
             history_parts.append(f"{role_label}: {msg.get('content')}")
         history_str = "\n".join(history_parts)
 
-        system_prompt = (
-            "Sen bir arama sorgusu sadeleştirici ve bağlam entegratörüsün.\n"
-            "Görevin, verilen sohbet geçmişini ve kullanıcının en son yazdığı soruyu analiz ederek, "
-            "en son soruyu geçmiş bağlamını koruyacak şekilde bağımsız (standalone) bir arama sorgusu olarak yeniden yazmaktır.\n\n"
-            "KURALLAR:\n"
-            "1. Yeniden yazılmış soru, geçmişteki zamirleri (o, bunu, orada vb.) veya gizli özneleri gerçek isimleriyle (Örn: 'stopaj teşviki') değiştirmelidir.\n"
-            "2. Eğer son mesaj zaten kendi başına tam ve anlaşılır bir soruysa (örneğin 'merhaba', 'nasılsın' veya "
-            "konuyu zaten tamamen açıklayan bağımsız bir soruysa), hiçbir değişiklik yapmadan orijinal soruyu aynen döndür.\n"
-            "3. Sadece yeniden yazılmış soruyu döndür. Başına veya sonuna açıklama, yorum veya ek kelime ekleme."
-        )
+        system_prompt = CONDENSE_SYSTEM_PROMPT
         
         prompt = f"Sohbet Geçmişi:\n{history_str}\n\nEn Son Soru: {query}\nYeniden Yazılmış Soru:"
         try:
@@ -556,19 +517,7 @@ class ChatWorkflow:
                 history_parts.append(f"{role_label}: {msg.get('content')}")
             history_str = "\n".join(history_parts)
             
-            system_prompt = (
-                "Sen 'Gazi Teknopark' (Gazi Üniversitesi Teknoloji Geliştirme Bölgesi) için özel olarak geliştirilmiş, "
-                "resmi, güvenilir ve son derece profesyonel bir Kurumsal Bilgi Asistanısın.\n"
-                "Şu anki görevin, kullanıcının selamlaşma, hal hatır sorma veya genel sohbet amaçlı iletilerine "
-                "Gazi Teknopark'ın kurumsal kimliğine yakışır şekilde, nazik, sıcak ve profesyonel bir karşılık vermektir.\n\n"
-                "KURALLAR:\n"
-                "1. KİMLİĞİNİ KORU: Sen bir yapay zeka asistanısın. Kendini 'Gazi Teknopark Kurumsal Bilgi Asistanı' olarak tanıt.\n"
-                "2. YARDIMA HAZIR OL: Kullanıcıya hal hatır sorduktan veya selamını aldıktan sonra, Gazi Teknopark "
-                "kuralları, mevzuatları, hizmetleri veya genel belgeleri hakkında sorular sorabileceğini hatırlat.\n"
-                "3. KISA VE ÖZ: Yanıtlarını çok uzatmadan, doğrudan, sıcak ve kurumsal bir tonda tut.\n"
-                "4. KURUMSALLIK: Asla argo, aşırı laubali veya profesyonellik dışı kelimeler kullanma."
-            )
-            prompt = f"{system_prompt}\n\n"
+            prompt = f"{CHITCHAT_SYSTEM_PROMPT}\n\n"
             if history_str:
                 prompt += f"SOHBET GEÇMİŞİ:\n{history_str}\n\n"
             prompt += f"Kullanıcı: {query_val}\nAsistan:"
@@ -614,24 +563,7 @@ class ChatWorkflow:
             
         self.last_sources = sources
         context_str = "\n\n".join(context_list)
-        system_prompt = (
-            "Sen 'Gazi Teknopark' (Gazi Üniversitesi Teknoloji Geliştirme Bölgesi) için özel olarak geliştirilmiş, "
-            "resmi, güvenilir ve son derece profesyonel bir Kurumsal Bilgi Asistanısın.\n"
-            "Görevin, Gazi Teknopark firmaları, çalışanları, yönetimi veya dış paydaşları tarafından sorulan sorulara "
-            "aşağıda sağlanan 'Kaynak Belgeler' (Context) ışığında en doğru, şeffaf ve kurumsal dilde yanıt vermektir.\n\n"
-            "KESİN KURALLAR VE DAVRANIŞ BİÇİMİ:\n"
-            "1. SADECE KAYNAK KULLANIMI: Yanıtlarını oluştururken SADECE sana sağlanan 'Kaynak Belgeler' içerisindeki bilgileri kullan. "
-            "Asla kendi genel bilginle varsayımda bulunma, tahminde bulunma veya dışarıdan bilgi uydurma (Halüsinasyon yapma).\n"
-            "2. BİLGİ EKSİKLİĞİ: Eğer kullanıcının sorusunun cevabı sağlanan kaynak belgelerde kesin olarak yer almıyorsa, "
-            "SADECE VE SADECE \"Kaynak belgelerde bu bilgiye ulaşılamadı.\" yanıtını ver. Başka hiçbir açıklama, yorum veya ek cümle ekleme.\n"
-            "3. DİL VE ÜSLUP: Her zaman saygılı, resmi, empatik ve çözüm odaklı bir dil kullan. Yanıtlarını "
-            "okunması kolay olacak şekilde paragraflara ve (gerekirse) maddelere bölerek yapılandır.\n"
-            "4. BAĞLAM (CONTEXT) BÜTÜNLÜĞÜ: Cevabın, soruyu doğrudan yanıtlamalı, gereksiz laf kalabalığından kaçınmalı "
-            "ancak yeterince açıklayıcı ve doyurucu olmalıdır.\n"
-            "5. GİZLİLİK VE GÜVENLİK: Gazi Teknopark'ın kurumsal itibarını koru. Yasaklı, yasadışı veya zararlı içeriklere "
-            "asla yanıt verme.\n\n"
-            f"--- KAYNAK BELGELER BAŞLANGICI ---\n{context_str}\n--- KAYNAK BELGELER BİTİŞİ ---\n"
-        )
+        system_prompt = RAG_SYSTEM_PROMPT.format(context=context_str)
         
         # Sohbet geçmişini ekle
         history_parts = []
