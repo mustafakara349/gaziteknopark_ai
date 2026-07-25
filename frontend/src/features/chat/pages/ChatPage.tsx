@@ -1,8 +1,10 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { Avatar, Tooltip, LoadingOverlay, Stack, Text } from '@mantine/core';
-import { Send, FileText, MessageSquare, Sparkles } from 'lucide-react';
+import React, { useEffect, useLayoutEffect, useState, useRef } from 'react';
+import { Avatar, Tooltip, LoadingOverlay, Stack, Text, Select } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import { Send, FileText, MessageSquare, Sparkles, ChevronDown } from 'lucide-react';
 import { useChatStore } from '../../../store/chat-store';
 import { useAuthStore } from '../../../store/auth-store';
+import apiClient from '../../../core/api-client';
 
 /* ─────────────────────────────────────────────
    Gazi Üniversitesi Kurumsal Renkleri (Pantone)
@@ -38,29 +40,164 @@ export const ChatPage: React.FC = () => {
 
   const [query, setQuery] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [isMultiLine, setIsMultiLine] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // AI Yanıt Süresi Sayacı (Timer) State'leri
+  const [streamTimer, setStreamTimer] = useState<{ isTiming: boolean; elapsed: string }>({
+    isTiming: false,
+    elapsed: '0.0',
+  });
+  const [completedDurations, setCompletedDurations] = useState<{ [msgId: string]: string }>({});
+  const timerRef = useRef<any>(null);
+
+  // Model Yönetimi State'leri
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [activeModel, setActiveModel] = useState<string>('');
+  const [modelLoading, setModelLoading] = useState<boolean>(false);
+
+  // Vektör/Embedding modellerini gizleme filtresi
+  const isChatModel = (name: string) => {
+    const n = name.toLowerCase();
+    const embedKw = ["embed", "bge", "nomic", "minilm", "e5", "bert", "rerank", "vector", "embedding"];
+    return !embedKw.some((kw) => n.includes(kw));
+  };
+
+  const fetchModels = async () => {
+    try {
+      const res = await apiClient.get<{ models: string[]; current_model: string }>('/system/models');
+      const filtered = (res.data.models || []).filter(isChatModel);
+      setAvailableModels(filtered);
+      setActiveModel(res.data.current_model || (filtered.length > 0 ? filtered[0] : ''));
+    } catch (err) {
+      console.error('Modeller çekilemedi:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchModels();
+  }, []);
+
+  const handleModelChange = async (newModel: string) => {
+    if (!newModel || newModel === activeModel || modelLoading) return;
+    setModelLoading(true);
+    try {
+      const response = await apiClient.post<{ status: string; current_model: string; message: string }>('/system/models/select', {
+        model_name: newModel
+      });
+      setActiveModel(response.data.current_model);
+      notifications.show({
+        title: 'Model Değiştirildi',
+        message: `Sohbet modeli '${response.data.current_model}' olarak güncellendi.`,
+        color: 'green',
+        icon: <Sparkles size={16} />,
+        autoClose: 2500,
+      });
+    } catch (error: any) {
+      notifications.show({
+        title: 'Hata',
+        message: error.response?.data?.detail || 'Model değiştirilemedi.',
+        color: 'red',
+      });
+    } finally {
+      setModelLoading(false);
+    }
+  };
 
   // Yeni mesaj gelince en alta kaydır
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Textarea otomatik yükseklik
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 160) + 'px';
+  // Textarea dinamik yükseklik ve içerik silindiğinde sıfırlama mantığı
+  useLayoutEffect(() => {
+    if (!textareaRef.current) {
+      setIsMultiLine(false);
+      return;
     }
-  }, [query]);
+
+    // İçerik tamamen silindiğinde varsayılan tek satır haline geri döndür
+    if (!query.trim()) {
+      textareaRef.current.style.height = '24px';
+      if (isMultiLine) {
+        setIsMultiLine(false);
+      }
+      return;
+    }
+
+    // Önce yüksekliği serbest bırakıp scrollHeight hesapla
+    textareaRef.current.style.height = 'auto';
+    const sh = textareaRef.current.scrollHeight;
+
+    // Satır kırılması veya genişlik aşımı tespiti
+    const newIsMulti = query.includes('\n') || sh > 38;
+    if (newIsMulti !== isMultiLine) {
+      setIsMultiLine(newIsMulti);
+    }
+
+    // Yüksekliği 220px (en az 4-8 satır rahat görünüm) kadar esnet, üstünü scroll yap
+    const minH = newIsMulti ? 52 : 24;
+    const targetH = Math.max(minH, Math.min(sh, 220));
+    textareaRef.current.style.height = `${targetH}px`;
+  }, [query, isMultiLine]);
 
   const handleSend = async () => {
     if (!query.trim() || !activeSessionId || isSending) return;
     const currentQuery = query;
     setQuery('');
+    setIsMultiLine(false);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '24px';
+    }
     setIsSending(true);
-    await sendMessageStream(activeSessionId, currentQuery, () => { });
-    setIsSending(false);
+
+    // TTFT (Time to First Token) Canlı Sayacı Başlat (0.0 saniye)
+    const startTime = Date.now();
+    let firstTokenReceived = false;
+
+    setStreamTimer({ isTiming: true, elapsed: '0.0' });
+
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      if (!firstTokenReceived) {
+        const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+        setStreamTimer({ isTiming: true, elapsed: elapsedSec });
+      }
+    }, 100);
+
+    const freezeTTFTTimer = () => {
+      if (!firstTokenReceived) {
+        firstTokenReceived = true;
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+        }
+        const ttftSec = ((Date.now() - startTime) / 1000).toFixed(1);
+        const durationText = `${ttftSec} saniye sürdü`;
+        setStreamTimer({ isTiming: false, elapsed: ttftSec });
+        setCompletedDurations((prev) => ({
+          ...prev,
+          ['placeholder-assistant']: durationText,
+          ['latest']: durationText
+        }));
+      }
+    };
+
+    try {
+      await sendMessageStream(activeSessionId, currentQuery, (token) => {
+        // İlk kelime/token ulaştığı anda TTFT sayacını dondur ve sabitle
+        if (token && token.trim().length > 0) {
+          freezeTTFTTimer();
+        }
+      });
+    } catch (err) {
+      console.error('Akış hatası:', err);
+    } finally {
+      // Akış sonlandığında sayacın durduğundan emin ol
+      freezeTTFTTimer();
+      setIsSending(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -168,8 +305,11 @@ export const ChatPage: React.FC = () => {
           )}
 
           <Stack gap={24}>
-            {messages.map((msg) => {
+            {messages.map((msg, index) => {
               const groupedSources = groupSources(msg.sources);
+              const isLastAssistant = msg.role === 'assistant' && index === messages.length - 1;
+              const isCurrentlyGenerating = isSending && isLastAssistant;
+
               return (
                 <div
                   key={msg.id}
@@ -194,14 +334,51 @@ export const ChatPage: React.FC = () => {
                     maxWidth: '80%', display: 'flex', flexDirection: 'column',
                     alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
                   }}>
-                    {/* İsim */}
+                    {/* İsim ve Entegre Sayaç */}
                     <span style={{
                       fontSize: 12, fontWeight: 600,
                       color: '#71717a', marginBottom: 4,
                       paddingLeft: msg.role === 'assistant' ? 2 : 0,
                       paddingRight: msg.role === 'user' ? 2 : 0,
+                      display: 'inline-flex',
+                      alignItems: 'center',
                     }}>
                       {msg.role === 'user' ? (fullName || 'Siz') : 'Gazi Teknopark AI'}
+
+                      {/* AI Yanıt Süresi Sayacı */}
+                      {msg.role === 'assistant' && (
+                        <>
+                          {isCurrentlyGenerating ? (
+                            /* 1. Canlı Çalışan Sayaç (0.0 saniye) */
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              marginLeft: 8,
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: COLORS.lacivert,
+                              backgroundColor: COLORS.acikMavi,
+                              padding: '1px 8px',
+                              borderRadius: 12,
+                              boxShadow: '0 1px 3px rgba(27,54,93,0.08)',
+                            }}>
+                              <Sparkles size={11} color={COLORS.lacivert} />
+                              {streamTimer.elapsed} saniye
+                            </span>
+                          ) : (completedDurations[msg.id] || (isLastAssistant && completedDurations['latest'])) ? (
+                            /* 2. Tamamlanan Yanıt Süresi (Örn: 2.3 saniye sürdü) */
+                            <span style={{
+                              fontSize: 11,
+                              fontWeight: 500,
+                              color: '#8a94a6',
+                              marginLeft: 8,
+                            }}>
+                              • {completedDurations[msg.id] || (isLastAssistant ? completedDurations['latest'] : '')}
+                            </span>
+                          ) : null}
+                        </>
+                      )}
                     </span>
 
                     {/* Balon */}
@@ -291,14 +468,15 @@ export const ChatPage: React.FC = () => {
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <div style={{
             display: 'flex',
-            alignItems: 'flex-end',
-            gap: 12,
+            flexDirection: isMultiLine ? 'column' : 'row',
+            alignItems: isMultiLine ? 'stretch' : 'center',
+            gap: 10,
             backgroundColor: '#ffffff',
             border: '1px solid #e2e8f0',
             borderRadius: 24,
             padding: '12px 14px 12px 20px',
             boxShadow: '0 10px 30px -10px rgba(27,54,93,0.12), 0 1px 3px rgba(0,0,0,0.02)',
-            transition: 'border-color 0.2s, box-shadow 0.2s',
+            transition: 'border-color 0.2s, box-shadow 0.2s, all 0.2s ease',
           }}
             onFocus={(e) => {
               e.currentTarget.style.borderColor = COLORS.lacivert;
@@ -311,6 +489,7 @@ export const ChatPage: React.FC = () => {
               }
             }}
           >
+            {/* Dinamik ve 220px (8-9 satır) yüksekliğine kadar otomatik esneyen Textarea */}
             <textarea
               ref={textareaRef}
               rows={1}
@@ -320,6 +499,7 @@ export const ChatPage: React.FC = () => {
               onKeyDown={handleKeyDown}
               style={{
                 flex: 1,
+                width: '100%',
                 border: 'none',
                 outline: 'none',
                 background: 'transparent',
@@ -328,41 +508,104 @@ export const ChatPage: React.FC = () => {
                 lineHeight: 1.6,
                 color: '#1c1917',
                 fontFamily: 'inherit',
-                maxHeight: 160,
-                overflowY: 'auto',
-                paddingTop: 3,
+                minHeight: isMultiLine ? 52 : 24,
+                maxHeight: 220,
+                overflowY: textareaRef.current && textareaRef.current.scrollHeight > 220 ? 'auto' : 'hidden',
+                paddingTop: isMultiLine ? 2 : 0,
+                display: 'block',
               }}
             />
-            <button
-              onClick={handleSend}
-              disabled={!query.trim() || isSending}
-              style={{
-                flexShrink: 0,
-                width: 32,
-                height: 32,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: '50%',
-                border: 'none',
-                backgroundColor: query.trim() && !isSending ? COLORS.lacivert : '#f4f4f5',
-                color: query.trim() && !isSending ? '#ffffff' : '#a1a1aa',
-                cursor: query.trim() && !isSending ? 'pointer' : 'not-allowed',
-                transition: 'all 0.2s ease',
-              }}
-              onMouseEnter={(e) => {
-                if (query.trim() && !isSending) {
-                  e.currentTarget.style.backgroundColor = COLORS.lacivertHover;
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (query.trim() && !isSending) {
-                  e.currentTarget.style.backgroundColor = COLORS.lacivert;
-                }
-              }}
-            >
-              <Send size={15} />
-            </button>
+
+            {/* Kontrol Alanı (Dropdown & Gönder Butonu) */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: isMultiLine ? 'flex-end' : 'flex-start',
+              gap: 8,
+              flexShrink: 0,
+              width: isMultiLine ? '100%' : 'auto',
+              marginTop: isMultiLine ? 4 : 0,
+            }}>
+              {/* Minimal Entegre AI Model Seçici */}
+              {availableModels.length > 0 && (
+                <Select
+                  variant="unstyled"
+                  data={availableModels}
+                  value={activeModel}
+                  onChange={(val) => val && handleModelChange(val)}
+                  disabled={modelLoading}
+                  rightSection={<ChevronDown size={13} color="#71717a" />}
+                  rightSectionPointerEvents="none"
+                  comboboxProps={{ width: 180, position: 'top-end', shadow: 'md', transitionProps: { transition: 'pop-bottom-right', duration: 150 } }}
+                  style={{
+                    flexShrink: 0,
+                  }}
+                  styles={{
+                    input: {
+                      height: 30,
+                      paddingLeft: 10,
+                      paddingRight: 24,
+                      borderRadius: 15,
+                      backgroundColor: '#f4f4f5',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: '#3f3f46',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      transition: 'background-color 0.15s ease',
+                      border: 'none',
+                      maxWidth: 160,
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                    },
+                    dropdown: {
+                      borderRadius: 12,
+                      padding: 4,
+                      border: '1px solid #e4e4e7',
+                    },
+                    option: {
+                      fontSize: 12,
+                      borderRadius: 8,
+                      padding: '6px 10px',
+                    }
+                  }}
+                />
+              )}
+
+              {/* Gönder Butonu */}
+              <button
+                onClick={handleSend}
+                disabled={!query.trim() || isSending}
+                style={{
+                  flexShrink: 0,
+                  width: 32,
+                  height: 32,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '50%',
+                  border: 'none',
+                  backgroundColor: query.trim() && !isSending ? COLORS.lacivert : '#f4f4f5',
+                  color: query.trim() && !isSending ? '#ffffff' : '#a1a1aa',
+                  cursor: query.trim() && !isSending ? 'pointer' : 'not-allowed',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  if (query.trim() && !isSending) {
+                    e.currentTarget.style.backgroundColor = COLORS.lacivertHover;
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (query.trim() && !isSending) {
+                    e.currentTarget.style.backgroundColor = COLORS.lacivert;
+                  }
+                }}
+              >
+                <Send size={15} />
+              </button>
+            </div>
           </div>
           <p style={{
             fontSize: 11, color: '#a1a1aa', textAlign: 'center',

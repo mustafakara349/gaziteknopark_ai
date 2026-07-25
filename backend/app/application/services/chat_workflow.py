@@ -161,7 +161,8 @@ class ChatWorkflow:
             if any(any(root in word for root in greeting_roots) for word in words):
                 return {"query_type": "chitchat"}
         
-        system_prompt = (
+        prompts = self.llm_service.get_prompts() if hasattr(self.llm_service, "get_prompts") else {}
+        system_prompt = prompts.get("prompt_classify") or (
             "Sen bir sorgu sınıflandırıcısısın. Görevin, kullanıcının yazdığı sorgunun türünü belirlemektir.\n"
             "Sorguyu iki sınıftan birine yerleştir:\n"
             "- CHITCHAT: Selamlaşma, hal hatır sorma, genel sohbet, teşekkür etme, vedalaşma veya asistanın kim olduğunu sorma gibi bilgi aramayan konuşmalar.\n"
@@ -186,7 +187,8 @@ class ChatWorkflow:
             history_parts.append(f"{role_label}: {msg.get('content')}")
         history_str = "\n".join(history_parts)
         
-        system_prompt = (
+        prompts = self.llm_service.get_prompts() if hasattr(self.llm_service, "get_prompts") else {}
+        system_prompt = prompts.get("prompt_chitchat") or (
             "Sen 'Gazi Teknopark' (Gazi Üniversitesi Teknoloji Geliştirme Bölgesi) için özel olarak geliştirilmiş, "
             "resmi, güvenilir ve son derece profesyonel bir Kurumsal Bilgi Asistanısın.\n"
             "Şu anki görevin, kullanıcının selamlaşma, hal hatır sorma veya genel sohbet amaçlı iletilerine "
@@ -556,7 +558,8 @@ class ChatWorkflow:
                 history_parts.append(f"{role_label}: {msg.get('content')}")
             history_str = "\n".join(history_parts)
             
-            system_prompt = (
+            prompts = self.llm_service.get_prompts() if hasattr(self.llm_service, "get_prompts") else {}
+            system_prompt = prompts.get("prompt_chitchat") or (
                 "Sen 'Gazi Teknopark' (Gazi Üniversitesi Teknoloji Geliştirme Bölgesi) için özel olarak geliştirilmiş, "
                 "resmi, güvenilir ve son derece profesyonel bir Kurumsal Bilgi Asistanısın.\n"
                 "Şu anki görevin, kullanıcının selamlaşma, hal hatır sorma veya genel sohbet amaçlı iletilerine "
@@ -614,7 +617,8 @@ class ChatWorkflow:
             
         self.last_sources = sources
         context_str = "\n\n".join(context_list)
-        system_prompt = (
+        prompts = self.llm_service.get_prompts() if hasattr(self.llm_service, "get_prompts") else {}
+        base_rag_prompt = prompts.get("prompt_rag") or (
             "Sen 'Gazi Teknopark' (Gazi Üniversitesi Teknoloji Geliştirme Bölgesi) için özel olarak geliştirilmiş, "
             "resmi, güvenilir ve son derece profesyonel bir Kurumsal Bilgi Asistanısın.\n"
             "Görevin, Gazi Teknopark firmaları, çalışanları, yönetimi veya dış paydaşları tarafından sorulan sorulara "
@@ -629,9 +633,9 @@ class ChatWorkflow:
             "4. BAĞLAM (CONTEXT) BÜTÜNLÜĞÜ: Cevabın, soruyu doğrudan yanıtlamalı, gereksiz laf kalabalığından kaçınmalı "
             "ancak yeterince açıklayıcı ve doyurucu olmalıdır.\n"
             "5. GİZLİLİK VE GÜVENLİK: Gazi Teknopark'ın kurumsal itibarını koru. Yasaklı, yasadışı veya zararlı içeriklere "
-            "asla yanıt verme.\n\n"
-            f"--- KAYNAK BELGELER BAŞLANGICI ---\n{context_str}\n--- KAYNAK BELGELER BİTİŞİ ---\n"
+            "asla yanıt verme."
         )
+        system_prompt = f"{base_rag_prompt}\n\n--- KAYNAK BELGELER BAŞLANGICI ---\n{context_str}\n--- KAYNAK BELGELER BİTİŞİ ---\n"
         
         # Sohbet geçmişini ekle
         history_parts = []

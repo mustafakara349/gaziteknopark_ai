@@ -2,15 +2,21 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List, Dict, Any
+from pydantic import BaseModel
 
 from app.domain.models.user import User, UserRole
 from app.domain.repositories.audit_repository import IAuditRepository
-from app.presentation.api.dependencies import RoleChecker, get_audit_repository
+from app.application.interfaces.llm import ILLMService
+from app.infrastructure.services.redis_cache import RedisCacheService
+from app.presentation.api.dependencies import RoleChecker, get_audit_repository, get_current_user, get_llm_service, get_redis_cache
 
 router = APIRouter()
 
 # Sadece Admin yetkilidir
 require_admin = RoleChecker([UserRole.ADMIN])
+
+class SelectModelRequest(BaseModel):
+    model_name: str
 
 def get_gpu_metrics():
     import shutil
@@ -38,7 +44,7 @@ def get_gpu_metrics():
 
 @router.get("/metrics")
 async def get_system_metrics(
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(get_current_user)
 ):
     """
     On-Premise GPU ve sistem kaynaklarının gerçek metrik durumunu döner.
@@ -74,6 +80,45 @@ async def get_system_metrics(
     }
 
 
+@router.get("/models")
+async def get_ai_models(
+    current_user: User = Depends(get_current_user),
+    llm_service: ILLMService = Depends(get_llm_service)
+):
+    """
+    Yerel makinede yüklü olan tüm Ollama modellerini ve aktif modeli döner.
+    """
+    models = llm_service.list_available_models()
+    current_model = llm_service.get_current_model()
+    return {
+        "models": models,
+        "current_model": current_model
+    }
+
+
+@router.post("/models/select")
+async def select_ai_model(
+    payload: SelectModelRequest,
+    current_user: User = Depends(get_current_user),
+    llm_service: ILLMService = Depends(get_llm_service)
+):
+    """
+    Sistemin aktif olarak kullandığı LLM modelini çalışma zamanında (runtime) günceller.
+    """
+    try:
+        updated_model = llm_service.set_current_model(payload.model_name)
+        return {
+            "status": "success",
+            "current_model": updated_model,
+            "message": f"Aktif AI modeli '{updated_model}' olarak başarıyla güncellendi."
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Model güncelleme hatası: {str(e)}"
+        )
+
+
 @router.get("/audit-logs")
 async def get_audit_logs(
     skip: int = 0,
@@ -85,3 +130,124 @@ async def get_audit_logs(
     Sistem audit log kayıtlarını sayfalanmış olarak döner.
     """
     return audit_repo.get_all(skip=skip, limit=limit)
+
+
+class AISettingsUpdateRequest(BaseModel):
+    temperature: float
+    top_p: float
+    max_tokens: int
+    prompt_rag: str
+    prompt_chitchat: str
+    prompt_classify: str
+
+
+@router.get("/ai-settings")
+async def get_ai_settings(
+    current_user: User = Depends(get_current_user),
+    llm_service: ILLMService = Depends(get_llm_service)
+):
+    """
+    Aktif AI hiperparametrelerini (temperature, top_p, max_tokens) ve System Prompt içeriklerini döner.
+    """
+    hyperparameters = llm_service.get_hyperparameters() if hasattr(llm_service, "get_hyperparameters") else {
+        "temperature": 0.2, "top_p": 0.9, "max_tokens": 2048
+    }
+    prompts = llm_service.get_prompts() if hasattr(llm_service, "get_prompts") else {
+        "prompt_rag": "", "prompt_chitchat": "", "prompt_classify": ""
+    }
+    return {
+        "hyperparameters": hyperparameters,
+        "prompts": prompts,
+        "current_model": llm_service.get_current_model()
+    }
+
+
+@router.post("/ai-settings")
+async def update_ai_settings(
+    payload: AISettingsUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    llm_service: ILLMService = Depends(get_llm_service)
+):
+    """
+    AI hiperparametrelerini ve System Promptlarını çalışma zamanında ve veritabanında günceller.
+    """
+    try:
+        updated_hp = llm_service.set_hyperparameters(
+            temperature=payload.temperature,
+            top_p=payload.top_p,
+            max_tokens=payload.max_tokens
+        )
+        updated_prompts = llm_service.set_prompts(
+            prompt_rag=payload.prompt_rag,
+            prompt_chitchat=payload.prompt_chitchat,
+            prompt_classify=payload.prompt_classify
+        )
+        return {
+            "status": "success",
+            "message": "Yapay zeka model ayarları ve System Promptlar başarıyla güncellendi.",
+            "hyperparameters": updated_hp,
+            "prompts": updated_prompts
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Ayarlar güncellenirken hata oluştu: {str(e)}"
+        )
+
+
+@router.post("/ai-settings/reset")
+async def reset_ai_settings(
+    current_user: User = Depends(get_current_user),
+    llm_service: ILLMService = Depends(get_llm_service)
+):
+    """
+    Tüm hiperparametreleri ve System Promptları sistemdeki orijinal varsayılan değerlere döndürür.
+    """
+    try:
+        if hasattr(llm_service, "reset_settings_to_defaults"):
+            res = llm_service.reset_settings_to_defaults()
+            return {
+                "status": "success",
+                "message": "Tüm yapay zeka ayarları ve System Promptlar varsayılana döndürüldü.",
+                "data": res
+            }
+        return {"status": "success", "message": "Varsayılana döndürüldü."}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Varsayılana sıfırlama hatası: {str(e)}"
+        )
+
+
+@router.get("/cache-stats")
+async def get_cache_stats(
+    current_user: User = Depends(get_current_user),
+    redis_cache: RedisCacheService = Depends(get_redis_cache)
+):
+    """
+    Redis önbellek durumunu, toplam anahtar sayısını ve bellek kullanımını döner.
+    """
+    return redis_cache.get_stats()
+
+
+@router.post("/clear-cache")
+async def clear_cache(
+    current_user: User = Depends(get_current_user),
+    redis_cache: RedisCacheService = Depends(get_redis_cache)
+):
+    """
+    Tüm Redis semantik önbellek kayıtlarını ve anlık verileri sıfırlar.
+    """
+    success = redis_cache.flush_cache()
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Redis önbelleği sıfırlanırken bir hata oluştu."
+        )
+    return {
+        "status": "success",
+        "message": "Redis önbelleği (cache) başarıyla sıfırlandı ve tüm semantik kayıtlar temizlendi."
+    }
+
+
+

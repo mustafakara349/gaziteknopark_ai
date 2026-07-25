@@ -70,12 +70,21 @@ class QdrantVectorRepository(IVectorStoreRepository):
             )
             
         try:
-            results = self.client.search(
-                collection_name=self.collection_name,
-                query_vector=query_vector,
-                query_filter=qfilter,
-                limit=limit
-            )
+            if hasattr(self.client, "query_points"):
+                response = self.client.query_points(
+                    collection_name=self.collection_name,
+                    query=query_vector,
+                    query_filter=qfilter,
+                    limit=limit
+                )
+                results = response.points
+            else:
+                results = self.client.search(
+                    collection_name=self.collection_name,
+                    query_vector=query_vector,
+                    query_filter=qfilter,
+                    limit=limit
+                )
             
             output = []
             for res in results:

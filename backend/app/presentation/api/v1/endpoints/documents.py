@@ -25,6 +25,7 @@ from app.presentation.schemas.document import (
     DocumentResponse, CollectionResponse, CollectionCreate, JobStatusResponse
 )
 from app.application.use_cases.document_use_cases import UploadDocumentUseCase
+from app.infrastructure.services.celery_tasks import celery
 
 router = APIRouter()
 

@@ -84,3 +84,37 @@ class RedisCacheService:
         except Exception as e:
             logger.error(f"Redis kilit bırakma hatası: {str(e)}")
             return False
+
+    def get_stats(self) -> dict:
+        """
+        Redis sunucu metriklerini ve önbellekteki anahtar sayısını döner.
+        """
+        try:
+            dbsize = self.client.dbsize()
+            memory_info = self.client.info("memory")
+            used_memory_human = memory_info.get("used_memory_human", "N/A")
+            return {
+                "status": "connected",
+                "total_keys": dbsize,
+                "used_memory_human": used_memory_human
+            }
+        except Exception as e:
+            logger.error(f"Redis get_stats hatası: {str(e)}")
+            return {
+                "status": "disconnected",
+                "total_keys": 0,
+                "used_memory_human": "N/A"
+            }
+
+    def flush_cache(self) -> bool:
+        """
+        Mevcut Redis veritabanındaki tüm önbellek anahtarlarını siler.
+        """
+        try:
+            self.client.flushdb()
+            logger.info("Redis önbelleği (flushdb) başarıyla sıfırlandı.")
+            return True
+        except Exception as e:
+            logger.error(f"Redis flush_cache hatası: {str(e)}")
+            return False
+

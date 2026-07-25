@@ -110,3 +110,11 @@ class SearchHistoryORM(Base):
     query = Column(Text, nullable=False)
     results_count = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+class SystemSettingORM(Base):
+    __tablename__ = "system_settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(JSONB, nullable=False, default=dict)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
